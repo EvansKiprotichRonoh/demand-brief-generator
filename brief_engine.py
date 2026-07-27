@@ -370,9 +370,28 @@ def generate_brief(facts: dict[str, Any]) -> dict[str, Any]:
         "takeaways": takeaways,
         "actions": actions,
         "action_point": actions[0] if actions else "",
+        "risk_flags": _risk_flags(facts),
     }
     brief["markdown"] = render_markdown(facts, brief)
     return brief
+
+
+def _risk_flags(facts: dict[str, Any]) -> list[str]:
+    """Concise risk flags for the header of the brief / PDF."""
+    flags: list[str] = []
+    findings = " ".join(facts.get("findings", [])).lower()
+    dm = facts.get("demand", {})
+    if "under-forecast" in findings:
+        flags.append("Forecast under-bias → stockouts")
+    if "over-forecast" in findings:
+        flags.append("Forecast over-bias → waste")
+    if "stockout risk" in findings or (dm.get("days_of_cover") or 99) < 2:
+        flags.append("Low days-of-cover")
+    if "overstock" in findings:
+        flags.append("Overstock/waste")
+    if "high-volatility" in findings or "high-cv" in findings:
+        flags.append("High demand volatility")
+    return flags
 
 
 def render_markdown(facts: dict[str, Any], brief: dict[str, Any]) -> str:
@@ -389,6 +408,9 @@ def render_markdown(facts: dict[str, Any], brief: dict[str, Any]) -> str:
     for a in brief["actions"]:
         lines.append(f"- {a}")
     lines.append("")
+    if brief.get("risk_flags"):
+        lines.append(f"**Risk Flags:** {' · '.join(brief['risk_flags'])}")
+        lines.append("")
     lines.append("---")
     meta = (
         f"_Basis: {facts['profile']['n_rows']:,} rows · metric = **{facts['metric_col']}**"

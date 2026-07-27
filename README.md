@@ -40,7 +40,8 @@ streamlit run app.py
 Run it headless as a pure CLI too:
 
 ```bash
-python brief_engine.py sample_demand.csv
+python brief_engine.py sample_demand.csv        # print the brief
+python export_pdf.py sample_demand.csv brief.pdf # one-page PDF
 ```
 
 ---
@@ -74,6 +75,7 @@ Recommended Actions
 | `llm.py` | Optional grounded LLM narrative layer |
 | `prompt.md` | The exact, reusable weekly S&OP-brief prompt (Challenge #3) |
 | `app.py` | Streamlit UI (KPIs, actual-vs-forecast chart, column mapping, downloads) |
+| `export_pdf.py` | One-page PDF export of the brief (deck/email ready) |
 | `make_sample_data.py` | Generates the offline q-commerce demand dataset |
 
 Pipeline: **profile → detect demand roles → analyze (facts) → generate_brief → render**.
@@ -84,6 +86,13 @@ It stays generic: on a non-demand CSV it falls back to a standard executive brie
 
 ## Deploy to a public link (free)
 
+One command (creates the repo, pushes, prints the deploy URL):
+
+```bash
+./deploy.sh <your-github-username>
+```
+
+Or manually:
 1. Push this folder to a public GitHub repo.
 2. Go to [share.streamlit.io](https://share.streamlit.io) → "New app" → pick the
    repo and `app.py`. It builds from `requirements.txt` and gives you a public URL.

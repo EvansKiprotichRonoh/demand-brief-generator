@@ -105,12 +105,26 @@ with col_brief:
     else:
         st.markdown(brief["markdown"])
 
-    st.download_button(
-        "⬇️ Download brief (Markdown)",
+    dl1, dl2 = st.columns(2)
+    dl1.download_button(
+        "⬇️ Markdown",
         data=(llm_md or brief["markdown"]),
-        file_name="decision_brief.md",
+        file_name="demand_brief.md",
         mime="text/markdown",
+        use_container_width=True,
     )
+    try:
+        from export_pdf import build_pdf
+
+        dl2.download_button(
+            "⬇️ One-page PDF",
+            data=build_pdf(facts, brief),
+            file_name="demand_brief.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        dl2.caption(f"PDF export unavailable: {exc}")
 
 with col_data:
     st.subheader("What the tool saw")

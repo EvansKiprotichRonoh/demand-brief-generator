@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+# generated artifacts (regenerated on demand)
+demand_brief.pdf
+*.pdf.png
