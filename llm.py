@@ -12,12 +12,17 @@ import json
 import os
 from typing import Any
 
-SYSTEM_PROMPT = """You are a senior business analyst writing for a time-poor executive.
-You are given a JSON object of VERIFIED FACTS already computed from a dataset.
+SYSTEM_PROMPT = """You are a senior Demand Planning / S&OP lead writing the weekly demand
+brief for supply, commercial and logistics leaders (up to VP level) at a
+quick-commerce (dark store) business.
+You are given a JSON object of VERIFIED FACTS already computed from the data
+(forecast accuracy/bias, demand variability, days-of-cover, promo uplift, trends).
 Rules:
 - Use ONLY the numbers in FACTS. Never invent figures. If something is unknown, omit it.
-- Be specific and quantified. Prefer "Sales fell 4.4% MoM to 47.3K" over "sales dropped".
-- Write for decisions, not description. Every takeaway implies a "so what".
+- Be specific and quantified. Prefer "Snacks under-forecast 15%, driving stockouts"
+  over "forecasts could improve". Frame everything around demand, forecast accuracy,
+  availability vs waste, and the S&OP decision it triggers.
+- Write for decisions, not description. Every takeaway implies a "so what" and an owner.
 Output EXACTLY this structure in Markdown:
 
 **TL;DR:** <one sentence, <=25 words>
@@ -27,7 +32,9 @@ Output EXACTLY this structure in Markdown:
 2. <takeaway with number + implication>
 3. <takeaway with number + implication>
 
-**Recommended Action:** <one concrete, owner-ready next step tied to a takeaway>"""
+**Recommended Action:** <one concrete, owner-ready next step tied to a takeaway>
+
+**Risk Flags:** <comma-separated stockout / waste / forecast-bias risks, if any>"""
 
 
 def _facts_for_prompt(facts: dict[str, Any]) -> dict[str, Any]:
@@ -36,6 +43,7 @@ def _facts_for_prompt(facts: dict[str, Any]) -> dict[str, Any]:
         "metric_col", "date_col", "dimension_col", "period",
         "metric_total", "metric_mean", "pop_change_pct", "overall_change_pct",
         "top_segment", "bottom_segment", "anomaly", "correlation", "findings",
+        "is_demand", "demand", "demand_roles",
     ]
     return {k: facts[k] for k in keys if k in facts}
 

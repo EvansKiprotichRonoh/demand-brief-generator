@@ -25,6 +25,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from demand_planning import analyze_demand
+
 
 # --------------------------------------------------------------------------- #
 # Profiling
@@ -101,15 +103,24 @@ def analyze(
     """Compute a structured 'facts' dictionary from the dataframe."""
     prof = profile_dataframe(df)
 
+    # ---- domain (demand-planning) intelligence, if the columns are present ----
+    demand = analyze_demand(df)
+    roles = demand.get("roles", {})
+
     # ---- pick sensible defaults if the caller did not specify ----
-    if date_col is None and prof.date_cols:
-        date_col = prof.date_cols[0]
-    if metric_col is None and prof.numeric_cols:
-        # prefer the highest-variance numeric column as the "headline" metric
-        variances = {c: df[c].astype(float).var(skipna=True) for c in prof.numeric_cols}
-        metric_col = max(variances, key=lambda k: (variances[k] or 0))
-    if dimension_col is None and prof.categorical_cols:
-        dimension_col = prof.categorical_cols[0]
+    if date_col is None:
+        date_col = roles.get("date") or (prof.date_cols[0] if prof.date_cols else None)
+    if metric_col is None:
+        # prefer the demand "actual" column so the headline metric is real demand
+        if roles.get("actual") in prof.numeric_cols:
+            metric_col = roles["actual"]
+        elif prof.numeric_cols:
+            variances = {c: df[c].astype(float).var(skipna=True) for c in prof.numeric_cols}
+            metric_col = max(variances, key=lambda k: (variances[k] or 0))
+    if dimension_col is None:
+        dimension_col = roles.get("location") or (
+            prof.categorical_cols[0] if prof.categorical_cols else None
+        )
 
     facts: dict[str, Any] = {
         "profile": prof.__dict__,
@@ -136,12 +147,18 @@ def analyze(
         if not d.empty:
             span_days = (d["_date"].max() - d["_date"].min()).days
             freq = "W" if span_days <= 120 else "ME"  # month-end for long spans
-            ts = (
-                d.set_index("_date")["_metric"]
-                .resample(freq)
-                .sum()
-                .dropna()
-            )
+            # Aggregate to daily first so we can count real days per period and
+            # drop incomplete leading/trailing periods (avoids the classic
+            # "partial-week looks like a -88% crash" false alarm).
+            daily = d.set_index("_date")["_metric"].resample("D").sum()
+            res = daily.resample(freq)
+            ts = res.sum().dropna()
+            days_in_period = res.count()
+            min_days = 6 if freq == "W" else 24
+            while len(ts) > 2 and days_in_period.get(ts.index[-1], 0) < min_days:
+                ts = ts.iloc[:-1]
+            while len(ts) > 2 and days_in_period.get(ts.index[0], 0) < min_days:
+                ts = ts.iloc[1:]
             facts["series"] = {str(k.date()): float(v) for k, v in ts.items()}
             facts["period"] = "week" if freq == "W" else "month"
 
@@ -220,7 +237,10 @@ def analyze(
             )
 
     # ---- correlation between numeric metrics ----
-    nums = [c for c in prof.numeric_cols if c != metric_col]
+    # exclude demand-role columns: a forecast/inventory correlating with actuals
+    # is mechanically obvious, not an actionable "lever".
+    role_cols = {roles.get(r) for r in ("forecast", "inventory", "promo")}
+    nums = [c for c in prof.numeric_cols if c != metric_col and c not in role_cols]
     if nums:
         corr = df[[metric_col] + nums].apply(pd.to_numeric, errors="coerce").corr()
         if metric_col in corr:
@@ -236,6 +256,15 @@ def analyze(
                         f"{strongest} (r = {r:+.2f}) — a potential lever."
                     )
 
+    # ---- fold in demand-planning signals (these lead the brief) ----
+    if demand.get("is_demand"):
+        facts["is_demand"] = True
+        facts["demand"] = demand.get("metrics", {})
+        facts["demand_roles"] = roles
+        facts["demand_actions"] = demand.get("actions", [])
+        # demand findings are the most decision-relevant -> put them first
+        facts["findings"] = demand.get("findings", []) + facts["findings"]
+
     return facts
 
 
@@ -244,7 +273,8 @@ def analyze(
 # --------------------------------------------------------------------------- #
 def _recommend_actions(facts: dict[str, Any]) -> list[str]:
     """Map computed findings to concrete business actions (rule-based)."""
-    actions: list[str] = []
+    # demand-planning actions are the most role-relevant -> lead with them
+    actions: list[str] = list(facts.get("demand_actions", []))
     metric = facts.get("metric_col", "the metric")
 
     pop = facts.get("pop_change_pct")
@@ -260,19 +290,20 @@ def _recommend_actions(facts: dict[str, Any]) -> list[str]:
                 "protect and scale the winning channel/segment."
             )
 
-    top = facts.get("top_segment")
-    if top and top.get("share_pct") and top["share_pct"] >= 40:
-        actions.append(
-            f"De-risk over-reliance on '{top['name']}' "
-            f"({top['share_pct']:.0f}% of {metric}) by growing the next-tier segments."
-        )
+    if not facts.get("is_demand"):
+        top = facts.get("top_segment")
+        if top and top.get("share_pct") and top["share_pct"] >= 40:
+            actions.append(
+                f"De-risk over-reliance on '{top['name']}' "
+                f"({top['share_pct']:.0f}% of {metric}) by growing the next-tier segments."
+            )
 
-    bot = facts.get("bottom_segment")
-    if bot:
-        actions.append(
-            f"Decide fix-or-cut for the underperforming '{bot['name']}' segment "
-            "within the quarter."
-        )
+        bot = facts.get("bottom_segment")
+        if bot:
+            actions.append(
+                f"Decide fix-or-cut for the underperforming '{bot['name']}' segment "
+                "within the quarter."
+            )
 
     if facts.get("anomaly"):
         a = facts["anomaly"]
@@ -293,7 +324,13 @@ def _recommend_actions(facts: dict[str, Any]) -> list[str]:
             f"Establish a weekly tracking cadence for {metric} and set a target "
             "so future briefs can measure progress against a baseline."
         )
-    return actions[:4]
+    # de-duplicate while preserving order
+    seen, deduped = set(), []
+    for a in actions:
+        if a not in seen:
+            seen.add(a)
+            deduped.append(a)
+    return deduped[:5]
 
 
 def generate_brief(facts: dict[str, Any]) -> dict[str, Any]:
@@ -310,11 +347,19 @@ def generate_brief(facts: dict[str, Any]) -> dict[str, Any]:
     ]
 
     # TL;DR
-    pieces = [f"Total {metric} of {_fmt_num(facts.get('metric_total'))}"]
+    pieces = [f"{_fmt_num(facts.get('metric_total'))} total {metric}"]
     if facts.get("pop_change_pct") is not None:
         arrow = "▲" if facts["pop_change_pct"] >= 0 else "▼"
         pieces.append(f"{arrow} {abs(facts['pop_change_pct']):.1f}% latest {facts.get('period','period')}")
-    if facts.get("top_segment"):
+    dm = facts.get("demand", {})
+    if dm.get("accuracy_pct") is not None:
+        pieces.append(
+            f"forecast accuracy {dm['accuracy_pct']:.0f}% "
+            f"({dm['bias_pct']:+.0f}% bias)"
+        )
+    if dm.get("days_of_cover") is not None:
+        pieces.append(f"{dm['days_of_cover']:.1f} days cover")
+    if not dm and facts.get("top_segment"):
         pieces.append(f"led by '{facts['top_segment']['name']}'")
     tldr = "; ".join(pieces) + "."
 
@@ -331,7 +376,9 @@ def generate_brief(facts: dict[str, Any]) -> dict[str, Any]:
 
 
 def render_markdown(facts: dict[str, Any], brief: dict[str, Any]) -> str:
-    lines = ["# 📊 Executive Decision Brief", ""]
+    title = "# 📦 Weekly Demand & S&OP Brief" if facts.get("is_demand") \
+        else "# 📊 Executive Decision Brief"
+    lines = [title, ""]
     lines.append(f"**TL;DR —** {brief['tldr']}")
     lines.append("")
     lines.append("## Three Key Takeaways")
@@ -361,7 +408,7 @@ def render_markdown(facts: dict[str, Any], brief: dict[str, Any]) -> str:
 if __name__ == "__main__":
     import sys
 
-    path = sys.argv[1] if len(sys.argv) > 1 else "sample_sales.csv"
+    path = sys.argv[1] if len(sys.argv) > 1 else "sample_demand.csv"
     df_ = pd.read_csv(path)
     facts_ = analyze(df_)
     brief_ = generate_brief(facts_)
