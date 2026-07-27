@@ -5,6 +5,7 @@
 
 ## Deliverables
 - **Prototype:** this repo — `streamlit run app.py` (works offline, no key required).
+- **One-page PDF:** `python export_pdf.py` → deck/email-ready brief (also a download button in-app).
 - **Prompt:** `prompt.md` — the reusable, grounded weekly S&OP-brief prompt.
 - **Dataset:** self-created `sample_demand.csv` — actuals vs forecast, on-hand
   inventory, promos, seasonality by SKU / category / dark store (mirrors a real
