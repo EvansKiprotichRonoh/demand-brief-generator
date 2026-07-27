@@ -4,6 +4,9 @@
 **Tailored to the role:** Demand Planning / S&OP for quick-commerce (dark stores).
 
 ## Deliverables
+- **Public repo:** https://github.com/EvansKiprotichRonoh/demand-brief-generator
+- **Live app:** deploy in one click →
+  https://share.streamlit.io/deploy?repository=EvansKiprotichRonoh%2Fdemand-brief-generator&branch=main&mainModule=app.py
 - **Prototype:** this repo — `streamlit run app.py` (works offline, no key required).
 - **One-page PDF:** `python export_pdf.py` → deck/email-ready brief (also a download button in-app).
 - **Prompt:** `prompt.md` — the reusable, grounded weekly S&OP-brief prompt.
