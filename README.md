@@ -1,5 +1,8 @@
 # 📦 Demand Brief Generator
 
+**▶ Live app:** https://evanskiprotichronoh-demand-brief-generator-app-w88dt6.streamlit.app/
+
+
 **AI Challenge #1 — a tool that turns raw data into summaries and recommended business actions**,
 tailored to a **Demand Planning / S&OP** role in quick-commerce (dark stores).
 (It also fulfils Challenge #3: every brief ends in *3 key takeaways + an action point*.)
